@@ -1,4 +1,4 @@
-// ===== Kendama Master - Main Game Logic =====
+// ===== Kendama Master - Accelerometer-Based Gameplay =====
 
 // Game State
 const GameState = {
@@ -14,37 +14,42 @@ let score = 0;
 let combo = 1;
 let comboTimer = null;
 
-// Device Motion
+// Device Motion - Core gameplay
 let motionPermissionGranted = false;
-let accelerationX = 0;
-let accelerationY = 0;
-let accelerationZ = 0;
-let lastAccelY = 0;
-let flickDetected = false;
+let accelX = 0;  // Left/Right tilt
+let accelY = 0;  // Forward/Back tilt  
+let accelZ = 0;  // Up/Down acceleration
+let prevAccelZ = 0;
+let prevAccelY = 0;
+
+// Motion detection
+let isFlicking = false;
+let flickPower = 0;
 let flickCooldown = false;
+let motionHistory = [];
+const MOTION_HISTORY_SIZE = 5;
 
 // Canvas & Context
 let canvas, ctx;
 let canvasWidth, canvasHeight;
 let dpr = 1;
 
-// Physics Constants
-const GRAVITY = 0.4;
-const AIR_RESISTANCE = 0.99;
-const STRING_LENGTH = 150;
-const STRING_STIFFNESS = 0.08;
-const BALL_RADIUS = 28;
-const FLICK_THRESHOLD = 15;
-const CATCH_TOLERANCE = 20;
+// Physics Constants - Tuned for accelerometer play
+const GRAVITY = 0.35;
+const AIR_RESISTANCE = 0.985;
+const STRING_LENGTH = 180;
+const STRING_STIFFNESS = 0.06;
+const BALL_RADIUS = 38;
+const FLICK_THRESHOLD = 12;
+const CATCH_TOLERANCE = 25;
 
-// Game Objects
+// Kendama - Fixed in center, responds to tilt
 let ken = {
     x: 0,
     y: 0,
-    targetX: 0,
-    rotation: 0,
-    width: 80,
-    height: 140
+    rotation: 0,      // Rotation from accelerometer
+    targetRotation: 0,
+    scale: 1.4        // Bigger kendama!
 };
 
 let ball = {
@@ -54,7 +59,7 @@ let ball = {
     vy: 0,
     radius: BALL_RADIUS,
     attached: true,
-    attachPoint: 'bigCup', // bigCup, smallCup, baseCup, spike, hole
+    attachPoint: 'bigCup',
     rotation: 0
 };
 
@@ -62,13 +67,13 @@ let string = {
     points: []
 };
 
-// Ken Parts (relative positions from ken center)
+// Ken Parts - Scaled up positions
 const kenParts = {
-    spike: { x: 0, y: -55, width: 8, height: 25 },
-    bigCup: { x: -35, y: -25, width: 45, height: 20, depth: 15 },
-    smallCup: { x: 35, y: -25, width: 35, height: 16, depth: 12 },
-    baseCup: { x: 0, y: 10, width: 50, height: 18, depth: 14 },
-    handle: { x: 0, y: 50, width: 25, height: 60 }
+    spike: { x: 0, y: -70, width: 12, height: 35 },
+    bigCup: { x: -50, y: -30, width: 60, height: 28, depth: 20 },
+    smallCup: { x: 50, y: -30, width: 48, height: 22, depth: 16 },
+    baseCup: { x: 0, y: 15, width: 65, height: 25, depth: 18 },
+    handle: { x: 0, y: 75, width: 35, height: 80 }
 };
 
 // Tricks
@@ -76,29 +81,20 @@ const tricks = {
     bigCup: { name: 'Big Cup', nameJp: '大皿', points: 10 },
     smallCup: { name: 'Small Cup', nameJp: '小皿', points: 15 },
     baseCup: { name: 'Base Cup', nameJp: '中皿', points: 20 },
-    spike: { name: 'Spike', nameJp: 'とめけん', points: 50 },
-    airplane: { name: 'Airplane', nameJp: '飛行機', points: 100 }
+    spike: { name: 'Spike', nameJp: 'とめけん', points: 50 }
 };
 
 // ===== Initialization =====
 document.addEventListener('DOMContentLoaded', init);
 
 function init() {
-    // Get DOM elements
     canvas = document.getElementById('game-canvas');
     ctx = canvas.getContext('2d');
     
-    // Setup canvas
     setupCanvas();
     window.addEventListener('resize', setupCanvas);
-    
-    // Setup event listeners
     setupEventListeners();
-    
-    // Register service worker
     registerServiceWorker();
-    
-    // Check for install prompt
     setupInstallPrompt();
 }
 
@@ -114,16 +110,14 @@ function setupCanvas() {
     
     ctx.scale(dpr, dpr);
     
-    // Initialize positions
+    // Kendama fixed in center
     ken.x = canvasWidth / 2;
-    ken.y = canvasHeight * 0.65;
-    ken.targetX = ken.x;
+    ken.y = canvasHeight / 2 + 30;
     
     resetBall();
 }
 
 function setupEventListeners() {
-    // Screen buttons
     document.getElementById('start-btn').addEventListener('click', handleStart);
     document.getElementById('permission-btn').addEventListener('click', requestMotionPermission);
     document.getElementById('play-btn').addEventListener('click', startGame);
@@ -131,16 +125,6 @@ function setupEventListeners() {
     document.getElementById('resume-btn').addEventListener('click', resumeGame);
     document.getElementById('restart-btn').addEventListener('click', restartGame);
     document.getElementById('menu-btn').addEventListener('click', goToMenu);
-    
-    // Touch fallback for devices without accelerometer
-    canvas.addEventListener('touchstart', handleTouchStart);
-    canvas.addEventListener('touchmove', handleTouchMove);
-    canvas.addEventListener('touchend', handleTouchEnd);
-    
-    // Mouse fallback for testing
-    canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mouseup', handleMouseUp);
 }
 
 // ===== Screen Management =====
@@ -152,21 +136,17 @@ function showScreen(screenId) {
 }
 
 function handleStart() {
-    // Check if DeviceMotionEvent is available
     if (typeof DeviceMotionEvent !== 'undefined') {
-        // iOS 13+ requires permission
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
             showScreen('permission-screen');
             currentState = GameState.PERMISSION;
         } else {
-            // Android or older iOS - try to enable directly
             enableMotionListeners();
             showScreen('tutorial-screen');
             currentState = GameState.TUTORIAL;
         }
     } else {
-        // No motion support - use touch controls
-        console.log('DeviceMotion not supported, using touch controls');
+        alert('This game requires a device with motion sensors (smartphone/tablet)');
         showScreen('tutorial-screen');
         currentState = GameState.TUTORIAL;
     }
@@ -182,15 +162,12 @@ async function requestMotionPermission() {
                 showScreen('tutorial-screen');
                 currentState = GameState.TUTORIAL;
             } else {
-                alert('Motion permission denied. You can still play using touch controls!');
-                showScreen('tutorial-screen');
-                currentState = GameState.TUTORIAL;
+                alert('Motion permission is required to play. Please allow access and try again.');
             }
         }
     } catch (error) {
         console.error('Error requesting motion permission:', error);
-        showScreen('tutorial-screen');
-        currentState = GameState.TUTORIAL;
+        alert('Could not access motion sensors. Please try again.');
     }
 }
 
@@ -199,30 +176,56 @@ function enableMotionListeners() {
     motionPermissionGranted = true;
 }
 
+// ===== CORE: Accelerometer Controls =====
 function handleDeviceMotion(event) {
     if (currentState !== GameState.PLAYING) return;
     
     const accel = event.accelerationIncludingGravity;
     if (!accel) return;
     
-    // Smooth the acceleration values
-    accelerationX = accelerationX * 0.7 + (accel.x || 0) * 0.3;
-    accelerationY = accelerationY * 0.7 + (accel.y || 0) * 0.3;
-    accelerationZ = accelerationZ * 0.7 + (accel.z || 0) * 0.3;
+    // Store previous values for motion detection
+    prevAccelZ = accelZ;
+    prevAccelY = accelY;
     
-    // Detect upward flick
-    const deltaY = accelerationY - lastAccelY;
-    if (deltaY > FLICK_THRESHOLD && !flickCooldown && ball.attached) {
-        flickDetected = true;
-        flickCooldown = true;
-        setTimeout(() => { flickCooldown = false; }, 300);
+    // Smooth accelerometer values
+    accelX = accelX * 0.6 + (accel.x || 0) * 0.4;
+    accelY = accelY * 0.6 + (accel.y || 0) * 0.4;
+    accelZ = accelZ * 0.6 + (accel.z || 0) * 0.4;
+    
+    // Track motion history for flick detection
+    motionHistory.push({
+        y: accel.y || 0,
+        z: accel.z || 0,
+        time: Date.now()
+    });
+    if (motionHistory.length > MOTION_HISTORY_SIZE) {
+        motionHistory.shift();
     }
-    lastAccelY = accelerationY;
+    
+    // FLICK DETECTION: Detect quick upward motion
+    if (!flickCooldown && ball.attached && motionHistory.length >= 3) {
+        const recent = motionHistory.slice(-3);
+        const deltaY = recent[2].y - recent[0].y;
+        const deltaZ = recent[2].z - recent[0].z;
+        
+        // Upward flick: positive Y change (phone tilted up quickly) or negative Z (lifted up)
+        const flickStrength = Math.max(deltaY, -deltaZ);
+        
+        if (flickStrength > FLICK_THRESHOLD) {
+            flickPower = Math.min(flickStrength * 0.8, 20);
+            isFlicking = true;
+            flickCooldown = true;
+            setTimeout(() => { flickCooldown = false; }, 400);
+        }
+    }
+    
+    // KEN ROTATION: Tilt phone to angle the kendama
+    ken.targetRotation = -accelX * 0.08; // X-axis controls rotation
     
     // Update debug display
     const debug = document.getElementById('motion-debug');
     if (debug) {
-        debug.textContent = `X: ${accelerationX.toFixed(1)} Y: ${accelerationY.toFixed(1)}`;
+        debug.textContent = `Tilt: ${accelX.toFixed(1)} | Lift: ${accelY.toFixed(1)}`;
     }
 }
 
@@ -263,7 +266,7 @@ function goToMenu() {
     currentState = GameState.SPLASH;
 }
 
-// ===== Ball Reset =====
+// ===== Ball Management =====
 function resetBall() {
     ball.attached = true;
     ball.attachPoint = 'bigCup';
@@ -275,77 +278,25 @@ function resetBall() {
 function updateBallPosition() {
     if (ball.attached) {
         const part = kenParts[ball.attachPoint];
+        const scale = ken.scale;
+        
+        // Calculate rotated position
+        const cos = Math.cos(ken.rotation);
+        const sin = Math.sin(ken.rotation);
+        
+        let localX = part.x * scale;
+        let localY;
+        
         if (ball.attachPoint === 'spike') {
-            ball.x = ken.x + part.x;
-            ball.y = ken.y + part.y - ball.radius;
-        } else if (ball.attachPoint === 'hole') {
-            // Airplane position - ball is held, ken hangs below
-            ball.x = ken.x;
-            ball.y = ken.y - 80;
+            localY = (part.y - ball.radius - 5) * scale;
         } else {
-            ball.x = ken.x + part.x;
-            ball.y = ken.y + part.y - part.depth - ball.radius + 5;
+            localY = (part.y - part.depth - ball.radius + 8) * scale;
         }
+        
+        // Apply rotation
+        ball.x = ken.x + localX * cos - localY * sin;
+        ball.y = ken.y + localX * sin + localY * cos;
     }
-}
-
-// ===== Touch/Mouse Controls =====
-let touchStartX = 0;
-let touchStartY = 0;
-let isTouching = false;
-
-function handleTouchStart(e) {
-    if (currentState !== GameState.PLAYING) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    touchStartX = touch.clientX;
-    touchStartY = touch.clientY;
-    isTouching = true;
-}
-
-function handleTouchMove(e) {
-    if (currentState !== GameState.PLAYING || !isTouching) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    
-    // Move ken based on touch position
-    ken.targetX = touch.clientX;
-    
-    // Check for flick up
-    const deltaY = touchStartY - touch.clientY;
-    if (deltaY > 50 && ball.attached && !flickCooldown) {
-        flickDetected = true;
-        flickCooldown = true;
-        setTimeout(() => { flickCooldown = false; }, 300);
-    }
-}
-
-function handleTouchEnd(e) {
-    isTouching = false;
-}
-
-function handleMouseDown(e) {
-    if (currentState !== GameState.PLAYING) return;
-    touchStartX = e.clientX;
-    touchStartY = e.clientY;
-    isTouching = true;
-}
-
-function handleMouseMove(e) {
-    if (currentState !== GameState.PLAYING || !isTouching) return;
-    ken.targetX = e.clientX;
-    
-    const deltaY = touchStartY - e.clientY;
-    if (deltaY > 50 && ball.attached && !flickCooldown) {
-        flickDetected = true;
-        flickCooldown = true;
-        setTimeout(() => { flickCooldown = false; }, 300);
-    }
-    touchStartY = e.clientY;
-}
-
-function handleMouseUp(e) {
-    isTouching = false;
 }
 
 // ===== Game Loop =====
@@ -359,30 +310,26 @@ function gameLoop() {
 }
 
 function update() {
-    // Update ken position based on accelerometer or touch
-    if (motionPermissionGranted) {
-        // Tilt controls - accelerationX tilts left/right
-        ken.targetX = ken.x - accelerationX * 8;
-    }
+    // Smooth ken rotation from accelerometer
+    ken.rotation += (ken.targetRotation - ken.rotation) * 0.12;
     
-    // Smooth ken movement
-    ken.x += (ken.targetX - ken.x) * 0.15;
-    ken.x = Math.max(60, Math.min(canvasWidth - 60, ken.x));
-    
-    // Handle flick
-    if (flickDetected && ball.attached) {
+    // Handle flick - launch ball
+    if (isFlicking && ball.attached) {
         launchBall();
-        flickDetected = false;
+        isFlicking = false;
     }
     
     // Update ball physics
     if (!ball.attached) {
-        // Apply gravity
+        // Gravity
         ball.vy += GRAVITY;
         
-        // Apply air resistance
+        // Air resistance
         ball.vx *= AIR_RESISTANCE;
         ball.vy *= AIR_RESISTANCE;
+        
+        // Add accelerometer influence on ball while in air
+        ball.vx += accelX * 0.15;
         
         // String constraint
         const dx = ball.x - ken.x;
@@ -394,7 +341,7 @@ function update() {
             ball.x = ken.x + Math.cos(angle) * STRING_LENGTH;
             ball.y = ken.y + Math.sin(angle) * STRING_LENGTH;
             
-            // Apply string tension
+            // String tension
             const tension = (distance - STRING_LENGTH) * STRING_STIFFNESS;
             ball.vx -= Math.cos(angle) * tension;
             ball.vy -= Math.sin(angle) * tension;
@@ -407,65 +354,78 @@ function update() {
         // Check for catches
         checkCatches();
         
-        // Ball rotation based on velocity
-        ball.rotation += ball.vx * 0.05;
+        // Ball rotation
+        ball.rotation += ball.vx * 0.04;
     } else {
         updateBallPosition();
     }
     
-    // Update string points for rendering
+    // Update string
     updateString();
     
-    // Update hint text
+    // Update hint
     updateHint();
 }
 
 function launchBall() {
     ball.attached = false;
     
-    // Launch velocity - upward with some randomness
-    const launchPower = 12 + Math.random() * 3;
-    ball.vy = -launchPower;
-    ball.vx = (Math.random() - 0.5) * 4;
+    // Launch based on flick power and ken rotation
+    const launchAngle = ken.rotation - Math.PI / 2;
+    const power = 10 + flickPower;
     
-    // Add some velocity from ken movement
-    ball.vx += (ken.targetX - ken.x) * 0.3;
+    ball.vy = Math.sin(launchAngle) * power - 8;
+    ball.vx = Math.cos(launchAngle) * power * 0.5;
+    
+    // Add some randomness
+    ball.vx += (Math.random() - 0.5) * 2;
 }
 
 function checkCatches() {
-    // Only check when ball is moving downward and slow enough
-    if (ball.vy < 2) return;
+    // Only check when ball is moving toward ken
+    if (ball.vy < 1) return;
     
-    // Check each cup and spike
+    const scale = ken.scale;
+    const cos = Math.cos(ken.rotation);
+    const sin = Math.sin(ken.rotation);
+    
     const parts = ['spike', 'bigCup', 'smallCup', 'baseCup'];
     
     for (const partName of parts) {
         const part = kenParts[partName];
-        const partX = ken.x + part.x;
-        const partY = ken.y + part.y;
+        
+        // Calculate part position with rotation
+        const localX = part.x * scale;
+        const localY = part.y * scale;
+        const partX = ken.x + localX * cos - localY * sin;
+        const partY = ken.y + localX * sin + localY * cos;
         
         const dx = ball.x - partX;
         const dy = ball.y - partY;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         if (partName === 'spike') {
-            // Spike catch - need to be very precise
-            if (distance < 15 && ball.vy > 0 && dy < 0 && dy > -ball.radius - 10) {
+            // Spike - precise catch
+            if (distance < 20 * scale && ball.vy > 0) {
+                // Check if ball hole is facing spike (rotation check)
+                const relativeAngle = Math.abs(ball.rotation % (Math.PI * 2));
                 catchBall(partName);
                 return;
             }
         } else {
-            // Cup catch - more forgiving
-            const catchZone = part.width / 2 + 5;
-            if (Math.abs(dx) < catchZone && dy > -ball.radius && dy < part.depth + 5) {
+            // Cup catch - check if ball is in cup opening
+            const cupWidth = part.width * scale / 2 + CATCH_TOLERANCE;
+            const cupDepth = part.depth * scale + 10;
+            
+            if (Math.abs(dx) < cupWidth && dy > -ball.radius && dy < cupDepth) {
                 catchBall(partName);
                 return;
             }
         }
     }
     
-    // Check if ball fell too far
-    if (ball.y > canvasHeight + 50) {
+    // Reset if ball falls off screen
+    if (ball.y > canvasHeight + 100) {
         resetCombo();
         resetBall();
     }
@@ -487,30 +447,26 @@ function catchBall(partName) {
         incrementCombo();
     }
     
-    // Haptic feedback if available
+    // Haptic feedback
     if (navigator.vibrate) {
-        navigator.vibrate(50);
+        navigator.vibrate(partName === 'spike' ? [50, 30, 50] : 50);
     }
 }
 
 function updateString() {
-    // Create curved string from ken to ball
     string.points = [];
     
-    const startX = ken.x;
-    const startY = ken.y + 20; // String attachment point on ken
+    const startX = ken.x + Math.sin(ken.rotation) * 30;
+    const startY = ken.y + Math.cos(ken.rotation) * 30;
     const endX = ball.x;
-    const endY = ball.y + ball.radius * 0.8; // String attachment on ball
+    const endY = ball.y + ball.radius * 0.7;
     
-    const segments = 10;
+    const segments = 12;
     for (let i = 0; i <= segments; i++) {
         const t = i / segments;
-        
-        // Quadratic bezier with sag
-        const sag = Math.sin(t * Math.PI) * 20;
+        const sag = Math.sin(t * Math.PI) * (ball.attached ? 15 : 25);
         const x = startX + (endX - startX) * t;
         const y = startY + (endY - startY) * t + sag;
-        
         string.points.push({ x, y });
     }
 }
@@ -518,9 +474,9 @@ function updateString() {
 function updateHint() {
     const hint = document.getElementById('trick-hint');
     if (ball.attached) {
-        hint.textContent = 'Flick up to toss!';
+        hint.textContent = '📱 Flick your phone UP to toss!';
     } else {
-        hint.textContent = 'Catch the ball!';
+        hint.textContent = '📱 Tilt to catch the ball!';
     }
 }
 
@@ -535,7 +491,6 @@ function incrementCombo() {
     document.getElementById('combo').textContent = `x${combo}`;
     comboContainer.classList.add('active');
     
-    // Reset combo timer
     if (comboTimer) clearTimeout(comboTimer);
     comboTimer = setTimeout(resetCombo, 3000);
 }
@@ -553,7 +508,7 @@ function showTrickPopup(name, points) {
     popup.querySelector('.trick-points').textContent = `+${points}`;
     
     popup.classList.remove('hidden', 'show');
-    void popup.offsetWidth; // Trigger reflow
+    void popup.offsetWidth;
     popup.classList.add('show');
     
     setTimeout(() => {
@@ -564,35 +519,31 @@ function showTrickPopup(name, points) {
 
 // ===== Rendering =====
 function render() {
-    // Clear canvas
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     
-    // Draw background gradient (already handled by CSS, but we can add effects)
     drawBackground();
-    
-    // Draw string
     drawString();
-    
-    // Draw ken
     drawKen();
-    
-    // Draw ball
     drawBall();
+    drawMotionIndicator();
 }
 
 function drawBackground() {
-    // Subtle grid pattern
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-    ctx.lineWidth = 1;
+    // Radial gradient background
+    const gradient = ctx.createRadialGradient(
+        canvasWidth / 2, canvasHeight / 2, 0,
+        canvasWidth / 2, canvasHeight / 2, canvasHeight
+    );
+    gradient.addColorStop(0, '#1b263b');
+    gradient.addColorStop(1, '#0d1b2a');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
-    const gridSize = 50;
-    for (let x = 0; x < canvasWidth; x += gridSize) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvasHeight);
-        ctx.stroke();
-    }
-    for (let y = 0; y < canvasHeight; y += gridSize) {
+    // Subtle pattern
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 20; i++) {
+        const y = (canvasHeight / 20) * i;
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(canvasWidth, y);
@@ -611,7 +562,7 @@ function drawString() {
     }
     
     ctx.strokeStyle = '#d4a574';
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 3;
     ctx.lineCap = 'round';
     ctx.stroke();
 }
@@ -619,30 +570,45 @@ function drawString() {
 function drawKen() {
     ctx.save();
     ctx.translate(ken.x, ken.y);
+    ctx.rotate(ken.rotation);
+    ctx.scale(ken.scale, ken.scale);
     
     // Shadow
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 20;
-    ctx.shadowOffsetY = 10;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    ctx.shadowBlur = 30;
+    ctx.shadowOffsetY = 15;
     
     // Handle
     const handle = kenParts.handle;
-    ctx.fillStyle = createWoodGradient(ctx, -handle.width/2, handle.y - handle.height/2, handle.width, handle.height);
-    roundRect(ctx, -handle.width/2, handle.y - handle.height/2, handle.width, handle.height, 8);
+    const handleGrad = ctx.createLinearGradient(-handle.width/2, 0, handle.width/2, 0);
+    handleGrad.addColorStop(0, '#5d3a1a');
+    handleGrad.addColorStop(0.3, '#8b5a2b');
+    handleGrad.addColorStop(0.7, '#8b5a2b');
+    handleGrad.addColorStop(1, '#5d3a1a');
+    ctx.fillStyle = handleGrad;
+    roundRect(ctx, -handle.width/2, handle.y - handle.height/2, handle.width, handle.height, 10);
+    ctx.fill();
+    
+    // Crossbar
+    ctx.fillStyle = '#7a4a1b';
+    roundRect(ctx, -60, -5, 120, 25, 6);
     ctx.fill();
     
     // Base cup (center)
-    drawCup(kenParts.baseCup, '#8b5a2b');
+    drawCup(kenParts.baseCup, '#8b5a2b', '#6b4423');
     
     // Big cup (left)
-    drawCup(kenParts.bigCup, '#7a4a1b');
+    drawCup(kenParts.bigCup, '#7a4a1b', '#5d3a1a');
     
     // Small cup (right)
-    drawCup(kenParts.smallCup, '#7a4a1b');
+    drawCup(kenParts.smallCup, '#7a4a1b', '#5d3a1a');
     
     // Spike
     const spike = kenParts.spike;
-    ctx.fillStyle = createSpikeGradient(ctx, spike);
+    const spikeGrad = ctx.createLinearGradient(0, spike.y, 0, spike.y - spike.height);
+    spikeGrad.addColorStop(0, '#8b5a2b');
+    spikeGrad.addColorStop(1, '#e8c9a0');
+    ctx.fillStyle = spikeGrad;
     ctx.beginPath();
     ctx.moveTo(spike.x, spike.y - spike.height);
     ctx.lineTo(spike.x - spike.width/2, spike.y);
@@ -650,34 +616,40 @@ function drawKen() {
     ctx.closePath();
     ctx.fill();
     
-    // Highlight on spike tip
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    // Spike tip highlight
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.beginPath();
-    ctx.arc(spike.x, spike.y - spike.height + 3, 2, 0, Math.PI * 2);
+    ctx.arc(spike.x, spike.y - spike.height + 4, 3, 0, Math.PI * 2);
     ctx.fill();
     
     ctx.restore();
 }
 
-function drawCup(cup, color) {
+function drawCup(cup, color, darkColor) {
+    // Cup body
     ctx.fillStyle = color;
-    
-    // Cup body (ellipse)
     ctx.beginPath();
     ctx.ellipse(cup.x, cup.y, cup.width/2, cup.height/2, 0, 0, Math.PI * 2);
     ctx.fill();
     
-    // Cup interior (darker)
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    // Cup interior
+    ctx.fillStyle = darkColor;
     ctx.beginPath();
-    ctx.ellipse(cup.x, cup.y, cup.width/2 - 4, cup.height/2 - 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(cup.x, cup.y + 2, cup.width/2 - 5, cup.height/2 - 4, 0, 0, Math.PI * 2);
     ctx.fill();
     
-    // Highlight
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    // Inner shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
     ctx.beginPath();
-    ctx.ellipse(cup.x - cup.width/4, cup.y - cup.height/4, cup.width/6, cup.height/6, 0, 0, Math.PI * 2);
+    ctx.ellipse(cup.x, cup.y + 4, cup.width/2 - 8, cup.height/2 - 6, 0, 0, Math.PI * 2);
     ctx.fill();
+    
+    // Rim highlight
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(cup.x, cup.y, cup.width/2, cup.height/2, 0, Math.PI * 1.2, Math.PI * 1.8);
+    ctx.stroke();
 }
 
 function drawBall() {
@@ -686,17 +658,17 @@ function drawBall() {
     ctx.rotate(ball.rotation);
     
     // Shadow
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-    ctx.shadowBlur = 15;
-    ctx.shadowOffsetY = 8;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 10;
     
     // Ball gradient
     const gradient = ctx.createRadialGradient(
         -ball.radius * 0.3, -ball.radius * 0.3, 0,
         0, 0, ball.radius
     );
-    gradient.addColorStop(0, '#ff8fbc');
-    gradient.addColorStop(0.5, '#ff6b9d');
+    gradient.addColorStop(0, '#ff9ec4');
+    gradient.addColorStop(0.4, '#ff6b9d');
     gradient.addColorStop(1, '#c44569');
     
     ctx.fillStyle = gradient;
@@ -704,48 +676,53 @@ function drawBall() {
     ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
     ctx.fill();
     
-    // Hole in ball
+    // Hole
     ctx.shadowColor = 'transparent';
-    ctx.fillStyle = '#2a1a3a';
+    ctx.fillStyle = '#1a0a2a';
     ctx.beginPath();
-    ctx.ellipse(0, -ball.radius * 0.3, 8, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, -ball.radius * 0.4, 10, 7, 0, 0, Math.PI * 2);
     ctx.fill();
     
     // Hole depth
-    ctx.fillStyle = '#1a0a2a';
+    ctx.fillStyle = '#0d0515';
     ctx.beginPath();
-    ctx.ellipse(0, -ball.radius * 0.3 + 2, 6, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, -ball.radius * 0.4 + 2, 7, 4, 0, 0, Math.PI * 2);
     ctx.fill();
     
-    // Shine highlight
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    // Shine
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.beginPath();
-    ctx.ellipse(-ball.radius * 0.35, -ball.radius * 0.35, ball.radius * 0.25, ball.radius * 0.15, -0.5, 0, Math.PI * 2);
+    ctx.ellipse(-ball.radius * 0.35, -ball.radius * 0.35, ball.radius * 0.28, ball.radius * 0.15, -0.5, 0, Math.PI * 2);
     ctx.fill();
     
     ctx.restore();
 }
 
+function drawMotionIndicator() {
+    // Show tilt indicator when ball is attached
+    if (ball.attached) {
+        const indicatorY = canvasHeight - 80;
+        const centerX = canvasWidth / 2;
+        
+        // Background bar
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        roundRect(ctx, centerX - 80, indicatorY - 8, 160, 16, 8);
+        ctx.fill();
+        
+        // Tilt indicator
+        const tiltOffset = Math.max(-70, Math.min(70, -accelX * 8));
+        ctx.fillStyle = '#ff6b9d';
+        ctx.beginPath();
+        ctx.arc(centerX + tiltOffset, indicatorY, 8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Center mark
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillRect(centerX - 1, indicatorY - 10, 2, 20);
+    }
+}
+
 // ===== Helper Functions =====
-function createWoodGradient(ctx, x, y, width, height) {
-    const gradient = ctx.createLinearGradient(x, y, x + width, y);
-    gradient.addColorStop(0, '#6b4423');
-    gradient.addColorStop(0.3, '#8b5a2b');
-    gradient.addColorStop(0.7, '#8b5a2b');
-    gradient.addColorStop(1, '#6b4423');
-    return gradient;
-}
-
-function createSpikeGradient(ctx, spike) {
-    const gradient = ctx.createLinearGradient(
-        spike.x, spike.y,
-        spike.x, spike.y - spike.height
-    );
-    gradient.addColorStop(0, '#8b5a2b');
-    gradient.addColorStop(1, '#d4a574');
-    return gradient;
-}
-
 function roundRect(ctx, x, y, width, height, radius) {
     ctx.beginPath();
     ctx.moveTo(x + radius, y);
@@ -760,35 +737,28 @@ function roundRect(ctx, x, y, width, height, radius) {
     ctx.closePath();
 }
 
-// ===== PWA Features =====
+// ===== PWA =====
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js')
-            .then(registration => {
-                console.log('ServiceWorker registered:', registration);
-            })
-            .catch(error => {
-                console.log('ServiceWorker registration failed:', error);
-            });
+            .then(reg => console.log('SW registered'))
+            .catch(err => console.log('SW failed:', err));
     }
 }
 
 let deferredPrompt;
-
 function setupInstallPrompt() {
     window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         deferredPrompt = e;
         
-        // Show custom install prompt
         const installPrompt = document.getElementById('install-prompt');
         installPrompt.classList.remove('hidden');
         
         document.getElementById('install-btn').addEventListener('click', async () => {
             installPrompt.classList.add('hidden');
             deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            console.log('Install outcome:', outcome);
+            await deferredPrompt.userChoice;
             deferredPrompt = null;
         });
         
@@ -797,13 +767,3 @@ function setupInstallPrompt() {
         });
     });
 }
-
-// ===== Debug Mode =====
-// Press 'D' to toggle debug info
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'd' || e.key === 'D') {
-        const debug = document.getElementById('motion-debug');
-        debug.style.display = debug.style.display === 'none' ? 'block' : 'none';
-    }
-});
-
