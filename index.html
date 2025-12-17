@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a0a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="description" content="Play Kendama using your phone's motion sensors - a traditional Japanese skill toy game">
+    <title>Kendama Master</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon.svg">
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Maru+Gothic:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Splash Screen -->
+    <div id="splash-screen" class="screen active">
+        <div class="splash-content">
+            <div class="japanese-pattern"></div>
+            <h1 class="game-title">
+                <span class="title-jp">けん玉</span>
+                <span class="title-en">Kendama Master</span>
+            </h1>
+            <div class="kendama-preview">
+                <svg viewBox="0 0 200 300" class="kendama-svg">
+                    <!-- Ball -->
+                    <circle cx="100" cy="50" r="35" fill="url(#ballGradient)" class="ball-preview"/>
+                    <!-- String -->
+                    <path d="M100 85 Q120 150 100 180" stroke="#d4a574" stroke-width="2" fill="none" class="string-preview"/>
+                    <!-- Ken -->
+                    <ellipse cx="100" cy="195" rx="40" ry="15" fill="url(#cupGradient)"/>
+                    <rect x="85" y="195" width="30" height="60" fill="url(#handleGradient)"/>
+                    <ellipse cx="60" cy="210" rx="25" ry="12" fill="url(#cupGradient)"/>
+                    <ellipse cx="140" cy="210" rx="20" ry="10" fill="url(#cupGradient)"/>
+                    <polygon points="100,175 95,195 105,195" fill="url(#spikeGradient)"/>
+                    <defs>
+                        <radialGradient id="ballGradient" cx="30%" cy="30%">
+                            <stop offset="0%" stop-color="#ff6b9d"/>
+                            <stop offset="100%" stop-color="#c44569"/>
+                        </radialGradient>
+                        <linearGradient id="cupGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stop-color="#8b5a2b"/>
+                            <stop offset="100%" stop-color="#5d3a1a"/>
+                        </linearGradient>
+                        <linearGradient id="handleGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stop-color="#6b4423"/>
+                            <stop offset="50%" stop-color="#8b5a2b"/>
+                            <stop offset="100%" stop-color="#6b4423"/>
+                        </linearGradient>
+                        <linearGradient id="spikeGradient" x1="0%" y1="100%" x2="0%" y2="0%">
+                            <stop offset="0%" stop-color="#8b5a2b"/>
+                            <stop offset="100%" stop-color="#d4a574"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+            <button id="start-btn" class="btn-primary">
+                <span class="btn-text">始める</span>
+                <span class="btn-subtext">Start Game</span>
+            </button>
+            <p class="motion-hint">📱 Requires device motion sensors</p>
+        </div>
+    </div>
+
+    <!-- Permission Screen -->
+    <div id="permission-screen" class="screen">
+        <div class="permission-content">
+            <div class="permission-icon">🎯</div>
+            <h2>Motion Access Required</h2>
+            <p>To play Kendama Master, we need access to your device's motion sensors. This allows you to control the kendama by tilting and moving your phone!</p>
+            <button id="permission-btn" class="btn-primary">
+                <span class="btn-text">Allow Motion</span>
+            </button>
+            <p class="permission-note">Your motion data stays on your device</p>
+        </div>
+    </div>
+
+    <!-- Tutorial Screen -->
+    <div id="tutorial-screen" class="screen">
+        <div class="tutorial-content">
+            <h2>How to Play</h2>
+            <div class="tutorial-steps">
+                <div class="tutorial-step">
+                    <div class="step-icon">📱↔️</div>
+                    <p><strong>Tilt</strong> your phone to move the ken (handle)</p>
+                </div>
+                <div class="tutorial-step">
+                    <div class="step-icon">📱⬆️</div>
+                    <p><strong>Flick up</strong> to toss the ball into the air</p>
+                </div>
+                <div class="tutorial-step">
+                    <div class="step-icon">🎯</div>
+                    <p><strong>Catch</strong> the ball on cups or spike!</p>
+                </div>
+            </div>
+            <div class="tricks-preview">
+                <h3>Tricks to Master</h3>
+                <div class="trick-list">
+                    <span class="trick-badge">Big Cup</span>
+                    <span class="trick-badge">Small Cup</span>
+                    <span class="trick-badge">Base Cup</span>
+                    <span class="trick-badge">Spike</span>
+                    <span class="trick-badge">Airplane</span>
+                </div>
+            </div>
+            <button id="play-btn" class="btn-primary">
+                <span class="btn-text">Play!</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+        <div class="game-header">
+            <div class="score-display">
+                <span class="score-label">Score</span>
+                <span id="score" class="score-value">0</span>
+            </div>
+            <div class="combo-display" id="combo-container">
+                <span id="combo" class="combo-value">x1</span>
+            </div>
+            <button id="pause-btn" class="btn-icon">⏸️</button>
+        </div>
+        
+        <canvas id="game-canvas"></canvas>
+        
+        <div id="trick-popup" class="trick-popup hidden">
+            <span class="trick-name"></span>
+            <span class="trick-points"></span>
+        </div>
+
+        <div class="game-footer">
+            <div class="trick-hint" id="trick-hint">Flick up to toss!</div>
+            <div class="motion-debug" id="motion-debug"></div>
+        </div>
+    </div>
+
+    <!-- Pause Menu -->
+    <div id="pause-menu" class="overlay hidden">
+        <div class="pause-content">
+            <h2>Paused</h2>
+            <button id="resume-btn" class="btn-primary">Resume</button>
+            <button id="restart-btn" class="btn-secondary">Restart</button>
+            <button id="menu-btn" class="btn-secondary">Main Menu</button>
+        </div>
+    </div>
+
+    <!-- Install Prompt -->
+    <div id="install-prompt" class="install-prompt hidden">
+        <p>Install Kendama Master for the best experience!</p>
+        <button id="install-btn" class="btn-small">Install</button>
+        <button id="dismiss-install" class="btn-dismiss">✕</button>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

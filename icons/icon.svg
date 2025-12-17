@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="ballGrad" cx="30%" cy="30%">
+      <stop offset="0%" stop-color="#ff8fbc"/>
+      <stop offset="100%" stop-color="#c44569"/>
+    </radialGradient>
+    <linearGradient id="woodGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6b4423"/>
+      <stop offset="50%" stop-color="#8b5a2b"/>
+      <stop offset="100%" stop-color="#6b4423"/>
+    </linearGradient>
+    <linearGradient id="spikeGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#8b5a2b"/>
+      <stop offset="100%" stop-color="#d4a574"/>
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a0a2e"/>
+      <stop offset="50%" stop-color="#16213e"/>
+      <stop offset="100%" stop-color="#0f3460"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="url(#bgGrad)"/>
+  
+  <!-- Decorative pattern -->
+  <g opacity="0.1">
+    <path d="M0 256L256 0L512 256L256 512Z" fill="none" stroke="#ffffff" stroke-width="1"/>
+    <path d="M128 256L256 128L384 256L256 384Z" fill="none" stroke="#ffffff" stroke-width="1"/>
+  </g>
+  
+  <!-- String -->
+  <path d="M256 160 Q300 230 256 290" stroke="#d4a574" stroke-width="4" fill="none" stroke-linecap="round"/>
+  
+  <!-- Ball (Tama) -->
+  <circle cx="256" cy="115" r="55" fill="url(#ballGrad)"/>
+  <ellipse cx="256" cy="100" rx="15" ry="10" fill="#2a1a3a"/>
+  <ellipse cx="256" cy="102" rx="10" ry="6" fill="#1a0a2a"/>
+  <ellipse cx="240" cy="90" rx="15" ry="8" fill="rgba(255,255,255,0.3)" transform="rotate(-20 240 90)"/>
+  
+  <!-- Ken (Handle) -->
+  <!-- Handle body -->
+  <rect x="231" y="310" width="50" height="100" rx="8" fill="url(#woodGrad)"/>
+  
+  <!-- Base cup (center) -->
+  <ellipse cx="256" cy="310" rx="55" ry="22" fill="#8b5a2b"/>
+  <ellipse cx="256" cy="310" rx="45" ry="16" fill="rgba(0,0,0,0.3)"/>
+  <ellipse cx="245" cy="305" rx="12" ry="6" fill="rgba(255,255,255,0.15)"/>
+  
+  <!-- Big cup (left) -->
+  <ellipse cx="175" cy="330" rx="50" ry="20" fill="#7a4a1b"/>
+  <ellipse cx="175" cy="330" rx="40" ry="14" fill="rgba(0,0,0,0.3)"/>
+  <ellipse cx="165" cy="326" rx="10" ry="5" fill="rgba(255,255,255,0.15)"/>
+  
+  <!-- Small cup (right) -->
+  <ellipse cx="337" cy="330" rx="40" ry="16" fill="#7a4a1b"/>
+  <ellipse cx="337" cy="330" rx="32" ry="11" fill="rgba(0,0,0,0.3)"/>
+  <ellipse cx="328" cy="327" rx="8" ry="4" fill="rgba(255,255,255,0.15)"/>
+  
+  <!-- Spike -->
+  <polygon points="256,260 245,295 267,295" fill="url(#spikeGrad)"/>
+  <circle cx="256" cy="265" r="3" fill="rgba(255,255,255,0.4)"/>
+  
+  <!-- Connecting pieces -->
+  <rect x="205" y="310" width="25" height="30" fill="#8b5a2b"/>
+  <rect x="282" y="310" width="25" height="30" fill="#8b5a2b"/>
+</svg>
+
